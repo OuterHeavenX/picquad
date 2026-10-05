@@ -20,7 +20,10 @@ async function boot() {
   }
 
   UI.init({
-    cardTap: (i) => Game.onCardTap(i),
+    tryPlace: (t, f, s) => Game.tryPlace(t, f, s),
+    pictureComplete: (f) => Game.pictureComplete(f),
+    topUp: () => Game.topUpTray(),
+    getState: () => Game.getState(),
     pause: () => Game.pauseGame(),
     resume: () => Game.resumeGame(),
     restart: () => Game.restartLevel(),

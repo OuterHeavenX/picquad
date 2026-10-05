@@ -1,5 +1,7 @@
-// game.js — level lifecycle, state machine, scoring, combo, power-ups, modes.
-// States: idle → dealing → playing → submitting → done
+// game.js — jigsaw orchestrator: frames, tray, drip-feed dealing, scoring, modes.
+// Player drags (or tap-taps) tiles from the tray into frame slots.
+// New pictures are introduced mid-game; tiles drip-feed so you're always
+// planning around what's missing.
 
 import { CFG } from "./config.js";
 import { save } from "./save.js";
@@ -7,31 +9,36 @@ import { audio } from "./audio.js";
 import { particles } from "./particles.js";
 import { wait, shake, haptic, floater, bump, toast, centerOf } from "./juice.js";
 import { getLevel, ADVENTURE_LEVELS, dailySeed } from "./levels.js";
-import { buildDeck } from "./deck.js";
+import { buildDeck, extraPictures } from "./deck.js";
 import * as Board from "./board.js";
 import { getPicture, preloadPack } from "./pictures.js";
 import * as UI from "./ui.js";
 
-let S = null;            // Board state
+let S = null;
 let mode = null;         // 'adventure' | 'blitz' | 'daily'
 let levelNum = 0;
 let timers = [];
-let baseEarned = 0, comboBonus = 0;
+let baseEarned = 0, comboBonus = 0, pictureBonus = 0;
 let blitzTimeLeft = 0;
 let dailyDateStr = null;
+let blitzInt = null, comboInt = null;
 
 const el = (id) => document.getElementById(id);
 const later = (fn, ms) => { const t = setTimeout(fn, ms); timers.push(t); return t; };
-function clearTimers() { timers.forEach(clearTimeout); timers = []; clearInterval(blitzInt); blitzInt = null; clearInterval(comboInt); comboInt = null; }
-let blitzInt = null, comboInt = null;
+function clearTimers() {
+  timers.forEach(clearTimeout); timers = [];
+  clearInterval(blitzInt); blitzInt = null;
+  clearInterval(comboInt); comboInt = null;
+}
 
-// ---------------- level setup ----------------
+export function getState() { return S; }
+
+// ---------------- setup ----------------
 
 function newState(level, seed) {
   const { queue, picIds } = buildDeck(level, seed);
   const st = Board.createState(level, queue, picIds);
-  st.phase = "dealing";
-  // power-up allowances
+  st.phase = "playing";
   const allow = level.mode === "adventure"
     ? { hint: CFG.powHint, shuffle: CFG.powShuffle, peek: CFG.powPeek }
     : { hint: 2, shuffle: 1, peek: 1 };
@@ -39,17 +46,60 @@ function newState(level, seed) {
   return st;
 }
 
-async function dealInitial() {
-  const filled = Board.fillEmptySlots(S);
-  S.phase = "playing";
-  UI.renderGrid(S, { dealAnimate: filled });
-  UI.updateHUD(S, modeInfo());
-  UI.updateDeckStrip(S);
-  audio.deal();
+// fill empty frame slots with the next pictures from the queue
+function introduceNextPictures() {
+  const active = new Set(S.frames.map(f => f.picId));
+  const introduced = [];
+  for (const q of S.pictureQueue) {
+    if (S.frames.length >= S.level.frames) break;
+    if (!active.has(q.picId)) {
+      Board.introducePicture(S, q.picId);
+      introduced.push(q.picId);
+    }
+  }
+  if (introduced.length) UI.renderFrames(S, { animateIn: introduced });
+  return introduced;
 }
 
-function modeInfo() {
-  return { mode, levelNum, blitzTimeLeft, dailyDateStr };
+// drip-feed: deal tiles for active pictures until the tray hits the target.
+// never dumps a whole picture at once — that's the tactical layer.
+export function topUpTray() {
+  if (!S || S.phase === "done") return;
+  const target = CFG.trayTopUpTarget;
+  const picks = new Map();
+  const activeIds = S.frames.map(f => f.picId);
+  let guard = 40;
+  const picked = () => [...picks.values()].reduce((a, b) => a + b, 0);
+  while (Board.trayCount(S) + picked() < target && guard-- > 0) {
+    const cands = activeIds.filter(id => {
+      const e = Board.queueEntry(S, id);
+      return e && e.remaining.length > (picks.get(id) || 0);
+    });
+    if (!cands.length) break;
+    const id = cands[Math.floor(Math.random() * cands.length)];
+    picks.set(id, (picks.get(id) || 0) + 1);
+  }
+  if (!picks.size) return;
+  const placed = Board.dealToTray(S, [...picks.entries()].map(([picId, count]) => ({ picId, count })));
+  if (placed.length) {
+    UI.renderTray(S, { dealAnimate: placed.map(p => p.trayIdx) });
+    audio.deal();
+  }
+}
+
+function beginLevel() {
+  UI.showScreen("game");
+  UI.setupBoard(S);
+  introduceNextPictures();
+  // opening deal: every active picture arrives missing `initialDealBack` tiles
+  const picks = S.frames.map(f => ({ picId: f.picId, count: S.level.tiles - CFG.initialDealBack }));
+  const placed = Board.dealToTray(S, picks);
+  UI.renderFrames(S, { animateIn: true });
+  UI.renderTray(S, { dealAnimate: placed.map(p => p.trayIdx) });
+  UI.updateHUD(S);
+  UI.updateDeckStrip(S);
+  audio.deal();
+  startComboTicker();
 }
 
 export function startAdventure(n) {
@@ -58,12 +108,9 @@ export function startAdventure(n) {
   const level = getLevel(n);
   preloadPack(level.packId);
   S = newState(level, null);
-  baseEarned = 0; comboBonus = 0;
-  UI.showScreen("game");
-  UI.setupBoard(S);
-  dealInitial();
-  startComboTicker();
+  baseEarned = 0; comboBonus = 0; pictureBonus = 0;
   UI.setBlitzVisible(false);
+  beginLevel();
 }
 
 export function startBlitz() {
@@ -74,21 +121,21 @@ export function startBlitz() {
   preloadPack(packId);
   const level = {
     id: 0, mode: "blitz", packId, tiles: 4, tileCols: 2, tileRows: 2,
-    gridCols: 5, gridRows: 4, pictures: 40, lookalikes: 1, timeLimit: CFG.blitzSec, seed: null,
+    frames: 2, traySize: 10, pictures: 8, lookalikes: 1, timeLimit: CFG.blitzSec, seed: null,
   };
   S = newState(level, null);
-  baseEarned = 0; comboBonus = 0;
+  baseEarned = 0; comboBonus = 0; pictureBonus = 0;
   blitzTimeLeft = CFG.blitzSec;
-  UI.showScreen("game");
-  UI.setupBoard(S);
-  dealInitial();
-  startComboTicker();
   UI.setBlitzVisible(true);
+  beginLevel();
   UI.updateBlitz(blitzTimeLeft, CFG.blitzSec);
   let lastTick = CFG.blitzSec;
   blitzInt = setInterval(() => {
     blitzTimeLeft -= 0.25;
-    if (Math.ceil(blitzTimeLeft) < lastTick) { lastTick = Math.ceil(blitzTimeLeft); if (lastTick <= 10 && lastTick > 0) audio.tick(); }
+    if (Math.ceil(blitzTimeLeft) < lastTick) {
+      lastTick = Math.ceil(blitzTimeLeft);
+      if (lastTick <= 10 && lastTick > 0) audio.tick();
+    }
     UI.updateBlitz(Math.max(0, blitzTimeLeft), CFG.blitzSec);
     if (blitzTimeLeft <= 0) endBlitz();
   }, 250);
@@ -106,119 +153,99 @@ export function startDaily() {
   preloadPack(packId);
   const level = {
     id: 0, mode: "daily", packId, tiles: 4, tileCols: 2, tileRows: 2,
-    gridCols: 5, gridRows: 4, pictures: 10, lookalikes: 1, timeLimit: null,
+    frames: 2, traySize: 10, pictures: 6, lookalikes: 1, timeLimit: null,
     seed: dailySeed(dailyDateStr),
   };
   S = newState(level, level.seed);
-  baseEarned = 0; comboBonus = 0;
-  UI.showScreen("game");
-  UI.setupBoard(S);
-  dealInitial();
-  startComboTicker();
+  baseEarned = 0; comboBonus = 0; pictureBonus = 0;
   UI.setBlitzVisible(false);
+  beginLevel();
   toast("📅 Daily puzzle — good luck!");
 }
 
-// ---------------- tapping & submit ----------------
+// ---------------- placing ----------------
 
-export function onCardTap(idx) {
-  if (!S || S.phase !== "playing") return;
-  const res = Board.tap(S, idx);
-  const T = S.level.tiles;
-  if (res.action === "selected") {
-    audio.pop(S.selected.length, T);
-    const c = centerOf(UI.cardEl(idx));
-    particles.sparkle(c.x, c.y, "#ffd97a");
-    UI.renderSelection(S);
-    if (res.completedPicId) submitSequence(res.completedPicId);
-  } else if (res.action === "deselected") {
-    audio.deselect();
-    UI.renderSelection(S);
-  } else if (res.action === "swapped") {
-    audio.groupSwap();
-    UI.renderSelection(S);
+// Pure logic + scoring. UI handles the visuals and calls pictureComplete().
+export function tryPlace(trayIdx, frameIdx, slotIdx) {
+  if (!S || S.phase !== "playing") return { ok: false, reason: "busy" };
+  const res = Board.attemptPlace(S, trayIdx, frameIdx, slotIdx);
+  if (!res.ok) {
+    if (res.reason === "mismatch") {
+      S.combo = 0;               // misplace breaks the combo — stakes!
+      audio.wobble();
+    } else if (res.reason !== "busy") {
+      audio.denied();
+    }
+    UI.updateHUD(S);
+    return res;
   }
+  const now = performance.now();
+  S.combo = now < S.comboExpires ? Math.min(CFG.maxCombo, S.combo + 1) : 1;
+  S.comboExpires = now + CFG.comboWindowMs;
+  S.bestCombo = Math.max(S.bestCombo, S.combo);
+  const pts = CFG.placeScore * S.combo;
+  S.score += pts;
+  baseEarned += CFG.placeScore;
+  comboBonus += CFG.placeScore * (S.combo - 1);
+  audio.snap();
+  UI.updateHUD(S);
+  bump(el("hud-score"));
+  return { ...res, pts, combo: S.combo };
 }
 
-async function submitSequence(picId) {
-  S.phase = "submitting";
-  const idxs = [...S.selected];
-  const T = S.level.tiles;
+// called by UI after the snap animation, when a frame is full
+export async function pictureComplete(frameIdx) {
+  const frame = S.frames[frameIdx];
+  if (!frame || S.phase !== "playing") return;
+  const picId = frame.picId;
   const pic = getPicture(S.level.packId, picId);
-  UI.markSubmitting(idxs);
-  haptic(12);
-  await wait(CFG.submitBeatMs);
+  S.phase = "celebrating";
 
-  // fly cards to board center
-  const gridC = centerOf(el("grid"));
-  const flights = idxs.map((si, k) =>
-    UI.flyCardTo(si, gridC.x, gridC.y, k * CFG.flyStaggerMs)
-  );
-  audio.arpeggio(T);
-  // trails
-  const trailInt = setInterval(() => {
-    for (const si of idxs) {
-      const c = centerOf(UI.cardEl(si));
-      particles.trail(c.x, c.y, pic ? pic.bg : "#f5b942");
-    }
-  }, 60);
-  await Promise.all(flights);
-  clearInterval(trailInt);
-
-  // merge celebration
-  particles.flash(gridC.x, gridC.y, { maxR: 150 });
-  particles.burst(gridC.x, gridC.y, {
+  const cpts = CFG.pictureScore * Math.max(1, S.combo);
+  S.score += cpts;
+  pictureBonus += cpts;
+  audio.merge();
+  audio.arpeggio(S.level.tiles);
+  const fc = UI.frameCenter(frameIdx);
+  particles.flash(fc.x, fc.y, { maxR: 160 });
+  particles.burst(fc.x, fc.y, {
     n: CFG.confettiPerSubmit,
     colors: pic ? [pic.bg, "#f5b942", "#fff7e8", "#ff70a6"] : undefined,
   });
-  shake(el("grid"));
+  shake(el("frames"));
   haptic(25);
-  audio.merge();
-  UI.clearCards(idxs);
-
-  // combo + score
-  const now = performance.now();
-  if (now < S.comboExpires) S.combo = Math.min(CFG.maxCombo, S.combo + 1);
-  else S.combo = 1;
-  S.comboExpires = now + CFG.comboWindowMs;
-  S.bestCombo = Math.max(S.bestCombo, S.combo);
-  const pts = CFG.baseScore * S.combo;
-  baseEarned += CFG.baseScore;
-  comboBonus += CFG.baseScore * (S.combo - 1);
-  S.score += pts;
-  floater(`+${pts}`, gridC.x, gridC.y - 40);
-  if (S.combo >= 2) {
-    floater(`COMBO ×${S.combo}`, gridC.x, gridC.y - 90, "combo");
-    audio.comboUp(S.combo);
-  }
+  floater(`+${cpts}`, fc.x, fc.y - 30);
+  if (S.combo >= 2) floater(`COMBO ×${S.combo}`, fc.x, fc.y - 80, "combo");
   bump(el("hud-score"));
 
-  // assembled picture reveal, then fly to deck tray
-  await UI.showAssembled(S.level.packId, pic);
+  await UI.celebrateFrame(S, frameIdx, pic);
   audio.thunk();
-  S.completed.add(picId);
-  const isNew = save.addGallery(S.level.packId, picId);
+  save.addGallery(S.level.packId, picId);
+  Board.removePicture(S, picId);
 
-  // refill: next whole picture(s) deal into the freed slots
-  Board.clearSlots(S, idxs);
-  const filled = Board.fillEmptySlots(S);
-  // blitz endless deck: top up when running low
-  if (mode === "blitz" && S.pictureQueue.length < 3) {
-    const extra = buildDeck(S.level, Math.floor(Math.random() * 1e9));
-    S.pictureQueue.push(...extra.queue);
-    S.picIds.push(...extra.picIds);
-  }
-  UI.renderGrid(S, { dealAnimate: filled });
-  UI.updateHUD(S, modeInfo());
+  introduceNextPictures();
+  UI.renderFrames(S);
+  UI.renderTray(S);
+  UI.updateHUD(S);
   UI.updateDeckStrip(S);
-  audio.whoosh();
+  if (mode === "blitz") topUpBlitzQueue();
+  topUpTray();
 
   if (mode !== "blitz" && Board.isLevelComplete(S)) {
     S.phase = "done";
-    await wait(500);
+    await wait(400);
     levelComplete();
   } else {
     S.phase = "playing";
+  }
+}
+
+function topUpBlitzQueue() {
+  const activeIds = new Set([...S.frames.map(f => f.picId), ...S.pictureQueue.map(q => q.picId)]);
+  if (S.pictureQueue.length < 4) {
+    const extra = extraPictures(S.level, 4, activeIds);
+    S.pictureQueue.push(...extra);
+    S.picIds.push(...extra.map(e => e.picId));
   }
 }
 
@@ -240,45 +267,43 @@ function startComboTicker() {
 export function useHint() {
   if (!S || S.phase !== "playing") return;
   if (S.powerups.hint <= 0) { audio.denied(); toast("No hints left!"); return; }
-  const picId = Board.randomIncompletePicture(S);
-  if (!picId) return;
+  const trayIdx = Board.randomTrayTile(S);
+  if (trayIdx == null) return;
+  const target = Board.correctSlotFor(S, trayIdx);
+  if (!target) return;
   S.powerups.hint--; S.powerupsUsed++;
   audio.power();
-  const idxs = Board.slotsOfPicture(S, picId);
-  UI.flashHint(idxs);
-  UI.updateHUD(S, modeInfo());
-  toast("🔍 Look for the glowing tiles!");
+  UI.flashSlot(target.frameIdx, target.slotIdx);
+  UI.updateHUD(S);
+  toast("🔍 A tile goes in the glowing slot!");
 }
 
 export function useShuffle() {
   if (!S || S.phase !== "playing") return;
   if (S.powerups.shuffle <= 0) { audio.denied(); toast("No shuffles left!"); return; }
   S.powerups.shuffle--; S.powerupsUsed++;
+  S.selectedTrayIdx = null;
   audio.power();
-  // collect on-board cards, reshuffle, place back (deck untouched)
-  const cards = S.slots.filter(Boolean);
+  const cards = S.tray.filter(Boolean);
   for (let i = cards.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [cards[i], cards[j]] = [cards[j], cards[i]];
   }
-  S.slots = S.slots.map((_, i) => (i < cards.length ? cards[i] : null));
-  S.selected = [];
-  const order = S.slots.map((c, i) => (c ? i : -1)).filter(i => i >= 0);
-  UI.renderGrid(S, { dealAnimate: order });
-  UI.updateHUD(S, modeInfo());
+  S.tray = [...cards, ...new Array(S.level.traySize - cards.length).fill(null)];
+  UI.renderTray(S, { dealAnimate: cards.map((_, i) => i) });
+  UI.updateHUD(S);
   particles.burst(window.innerWidth / 2, window.innerHeight / 2, { n: 30, colors: ["#5ec8b4", "#8ecae6", "#fff7e8"] });
 }
 
 export function usePeek() {
   if (!S || S.phase !== "playing") return;
   if (S.powerups.peek <= 0) { audio.denied(); toast("No peeks left!"); return; }
-  const picId = Board.randomIncompletePicture(S);
-  if (!picId) return;
+  if (!S.frames.length) return;
+  const frame = S.frames[Math.floor(Math.random() * S.frames.length)];
   S.powerups.peek--; S.powerupsUsed++;
   audio.power();
-  UI.updateHUD(S, modeInfo());
-  const pic = getPicture(S.level.packId, picId);
-  UI.showPeek(S.level.packId, pic);
+  UI.updateHUD(S);
+  UI.showPeek(S.level.packId, getPicture(S.level.packId, frame.picId));
 }
 
 // ---------------- pause / quit / restart ----------------
@@ -310,10 +335,14 @@ export function quitToLevels() {
 
 // ---------------- endings ----------------
 
+function accuracy() {
+  return S.correctPlacements / Math.max(1, S.attempts);
+}
+
 function starsEarned() {
   let s = 1;
   if (S.bestCombo >= 4) s = 2;
-  if (S.bestCombo >= 4 && S.powerupsUsed === 0) s = 3;
+  if (S.bestCombo >= 4 && accuracy() >= 0.85) s = 3;
   return s;
 }
 
@@ -331,10 +360,10 @@ async function levelComplete() {
   if (mode === "adventure") {
     const stars = starsEarned();
     save.addStars(levelNum, stars);
-    const picIds = [...S.picIds];
     UI.showLevelComplete({
-      stars, base: baseEarned, comboBonus, cleanBonus, total,
-      packId: S.level.packId, picIds,
+      stars, base: baseEarned, comboBonus, pictureBonus, cleanBonus, total,
+      accuracy: Math.round(accuracy() * 100),
+      packId: S.level.packId, picIds: [...S.picIds],
       hasNext: levelNum < ADVENTURE_LEVELS,
     });
   } else if (mode === "daily") {
@@ -342,7 +371,6 @@ async function levelComplete() {
     UI.showDailyComplete({ total: S.score, streak, packId: S.level.packId, picIds: [...S.picIds] });
     UI.refreshTitle();
   }
-  // blitz ends by timer, not here
 }
 
 function endBlitz() {
@@ -355,7 +383,6 @@ function endBlitz() {
   UI.showBlitzComplete({ score: S.score, best: save.d.best.blitz, isBest });
 }
 
-// called by UI modal buttons
 export function nextLevel() {
   UI.closeModal();
   if (mode === "adventure" && levelNum < ADVENTURE_LEVELS) startAdventure(levelNum + 1);

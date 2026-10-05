@@ -1,26 +1,123 @@
-/* board.css — grid layout, deck strip */
+/* board.css — jigsaw frames, tile tray, drag states */
 
-#board-wrap {
-  flex: 1; min-height: 0;
-  display: flex; align-items: center; justify-content: center;
-  padding: 6px 0;
+#frames {
+  flex: none;
+  display: flex; gap: 10px; justify-content: center;
+  padding: 4px 0 8px;
 }
 
-.grid {
+.frame {
+  flex: 1; max-width: 220px;
   display: grid;
-  gap: 7px;
-  width: 100%;
-  /* --grid-cols and --tile-ar set inline by ui.js */
-  grid-template-columns: repeat(var(--grid-cols, 5), 1fr);
+  gap: 5px;
+  /* --frame-cols + --tile-ar set inline by ui.js */
+  grid-template-columns: repeat(var(--frame-cols, 2), 1fr);
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(255, 247, 232, .045);
+  border: 2px dashed rgba(255, 247, 232, .16);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, .3);
+}
+.frame.frame-in { animation: frame-in .45s cubic-bezier(.34, 1.4, .64, 1) backwards; }
+@keyframes frame-in { from { transform: translateY(-18px) scale(.9); opacity: 0; } }
+.frame.celebrating .fslot.filled .card-face.front {
+  animation: frame-glow .5s ease-in-out 2;
+  border-color: var(--gold);
+}
+@keyframes frame-glow {
+  50% { filter: brightness(1.5); box-shadow: 0 0 24px rgba(245, 185, 66, .9); }
 }
 
-.grid.shake { animation: grid-shake .13s linear 2; }
-@keyframes grid-shake {
-  25% { transform: translate(-4px, 2px); }
-  75% { transform: translate(4px, -2px); }
+.fslot {
+  aspect-ratio: var(--tile-ar, 1 / 1);
+  border-radius: 9px;
+  border: 2px dashed rgba(255, 247, 232, .18);
+  background: rgba(0, 0, 0, .22);
+  position: relative;
+  transition: border-color .12s, box-shadow .12s, background .12s;
+}
+.fslot .card-face.front {
+  position: absolute; inset: 0;
+  border-radius: 7px;
+  background-repeat: no-repeat;
+  background-color: var(--ink-3);
+  border: 2px solid rgba(255, 247, 232, .14);
+  animation: slot-pop .22s cubic-bezier(.34, 1.8, .64, 1);
+}
+@keyframes slot-pop { from { transform: scale(.6); } }
+/* filled slots get a soft gold rim so progress reads at a glance */
+.fslot.filled { border-style: solid; border-color: rgba(245, 185, 66, .45); background: none; }
+/* drop-target highlight while dragging */
+.fslot.drop-ok {
+  border-color: var(--teal); border-style: solid;
+  box-shadow: 0 0 0 3px rgba(94, 200, 180, .5), 0 0 18px rgba(94, 200, 180, .6);
+  background: rgba(94, 200, 180, .12);
+}
+/* hint glow */
+.fslot.hint {
+  border-color: var(--teal); border-style: solid;
+  animation: hint-glow .8s ease-in-out infinite;
 }
 
-/* deck strip: remaining pictures */
+/* ---------- tray ---------- */
+.tray-label {
+  font-size: 10px; font-weight: 900; letter-spacing: 3px;
+  color: var(--cream-dim); text-align: center; padding: 2px 0 6px;
+}
+#tray-wrap { flex: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
+.tray {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px;
+  width: 100%; max-width: 360px;
+  padding: 10px;
+  border-radius: 18px;
+  background: rgba(255, 247, 232, .05);
+  border: 2px solid rgba(255, 247, 232, .1);
+  align-content: start;
+}
+.tray-slot {
+  aspect-ratio: var(--tile-ar, 1 / 1);
+  border-radius: 10px;
+  border: 2px dashed rgba(255, 247, 232, .1);
+}
+.tray-tile {
+  position: relative;
+  aspect-ratio: var(--tile-ar, 1 / 1);
+  border-radius: 10px;
+  cursor: grab;
+  touch-action: none; /* pointer drag, no scroll */
+  background-repeat: no-repeat;
+  background-color: var(--ink-3);
+  border: 2px solid rgba(255, 247, 232, .2);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .45);
+  transition: transform .16s cubic-bezier(.34, 1.56, .64, 1), box-shadow .16s;
+  will-change: transform;
+  z-index: 1;
+}
+.tray-tile.dealt { animation: tile-deal .45s cubic-bezier(.3, 1.3, .5, 1) backwards; }
+@keyframes tile-deal {
+  from { transform: rotateY(90deg) scale(.6); opacity: 0; }
+  to   { transform: rotateY(0deg) scale(1); opacity: 1; }
+}
+.tray-tile.selected {
+  transform: translateY(-8px) scale(1.07);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold), 0 0 20px rgba(245, 185, 66, .7);
+  z-index: 5;
+}
+.tray-tile.dragging {
+  cursor: grabbing;
+  z-index: 100;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, .6), 0 0 22px rgba(245, 185, 66, .35);
+  border-color: var(--gold-soft);
+}
+.tray-tile.wobble { animation: tile-wobble .32s ease; }
+@keyframes tile-wobble {
+  20% { transform: translateX(-9px) rotate(-4deg); }
+  45% { transform: translateX(8px) rotate(3deg); }
+  70% { transform: translateX(-5px) rotate(-2deg); }
+}
+
+/* deck strip: remaining pictures (unchanged look) */
 .deck-strip {
   display: flex; align-items: center; justify-content: center;
   gap: 10px; padding: 8px 0 2px;

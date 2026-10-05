@@ -1,16 +1,22 @@
-// ui.js — DOM rendering. Owns screens, HUD, grid DOM, animations, modals.
-// Pure view layer: game.js drives it via these functions; user input flows back
-// through handlers registered in init().
+// ui.js — DOM rendering for the jigsaw board. Frames + tile tray, drag-and-drop
+// (pointer events) with tap-tap fallback. Game logic lives in game.js; user
+// intent flows back through handlers registered in init().
 
 import { CFG } from "./config.js";
 import { save } from "./save.js";
 import { audio } from "./audio.js";
-import { wait, toast, centerOf } from "./juice.js";
-import { packIds, getManifest, pictureURL, applyTileCSS } from "./pictures.js";
+import { particles } from "./particles.js";
+import { wait, toast, centerOf, floater } from "./juice.js";
+import { packIds, getManifest, getPicture, pictureURL, applyTileCSS } from "./pictures.js";
 import { ADVENTURE_LEVELS } from "./levels.js";
 
 const el = (id) => document.getElementById(id);
 let H = {}; // handlers
+let selectedTrayIdx = null;
+let drag = null;
+let slotRects = [];
+
+// ================= init / screens =================
 
 export function init(handlers) {
   H = handlers;
@@ -72,138 +78,308 @@ export function refreshTitle() {
   else badge.classList.add("hidden");
 }
 
-// ---------------- level select ----------------
-
 export function renderLevelGrid() {
   const grid = el("level-grid");
   grid.innerHTML = "";
   for (let n = 1; n <= ADVENTURE_LEVELS; n++) {
     const locked = n > save.d.maxUnlocked;
     const stars = save.d.stars[n] || 0;
-    const band2 = n >= 26;
     const b = document.createElement("button");
     b.className = "level-node" + (locked ? " locked" : "") + (stars ? " done" : "");
     b.innerHTML = locked ? `${n}` :
-      `${n}<span class="stars">${"★".repeat(stars)}${"☆".repeat(3 - stars)}</span><span class="tile-tag">${band2 ? "3×2" : "2×2"}</span>`;
+      `${n}<span class="stars">${"★".repeat(stars)}${"☆".repeat(3 - stars)}</span><span class="tile-tag">${n >= 26 ? "3×2" : "2×2"}</span>`;
     if (!locked) b.onclick = () => { audio.click(); H.selectLevel(n); };
     grid.appendChild(b);
   }
 }
 
-// ---------------- board ----------------
+// ================= board: frames + tray =================
 
 export function setupBoard(state) {
-  const grid = el("grid");
-  grid.style.setProperty("--grid-cols", state.level.gridCols);
-  // tile aspect = R/C (tile is 1/C wide, 1/R tall of the square picture)
-  grid.style.setProperty("--tile-ar", `${state.level.tileRows} / ${state.level.tileCols}`);
-  grid.innerHTML = "";
+  selectedTrayIdx = null;
+  drag = null;
+  el("frames").innerHTML = "";
+  el("tray").innerHTML = "";
 }
 
-export function cardEl(idx) { return el("grid").children[idx]; }
-
-function buildCard(state, idx) {
-  const card = state.slots[idx];
-  const wrap = document.createElement("div");
-  if (!card) { wrap.className = "slot-empty"; return wrap; }
-  wrap.className = "card";
-  wrap.innerHTML = `<div class="card-inner"><div class="card-face front"></div><div class="card-face back"></div></div>`;
-  const front = wrap.querySelector(".front");
-  // resolve via manifest for the real file name
-  const man = getManifest(state.level.packId);
-  const full = man.pictures.find(p => p.id === card.picId);
-  applyTileCSS(front, state.level.packId, full, card.tile, state.level.tileCols, state.level.tileRows);
-  wrap.onclick = () => H.cardTap(idx);
-  return wrap;
+function tileAspect(state) {
+  return `${state.level.tileRows} / ${state.level.tileCols}`;
 }
 
-export function renderGrid(state, { dealAnimate = [] } = {}) {
-  const grid = el("grid");
-  grid.innerHTML = "";
+export function renderFrames(state, { animateIn = false } = {}) {
+  const wrap = el("frames");
+  wrap.innerHTML = "";
+  state.frames.forEach((frame, fi) => {
+    const f = document.createElement("div");
+    f.className = "frame";
+    const shouldAnimate = animateIn === true ||
+      (Array.isArray(animateIn) && animateIn.includes(frame.picId));
+    if (shouldAnimate) f.classList.add("frame-in");
+    f.style.setProperty("--frame-cols", state.level.tileCols);
+    f.style.setProperty("--tile-ar", tileAspect(state));
+    frame.slots.forEach((card, si) => {
+      const s = document.createElement("div");
+      s.className = "fslot" + (card ? " filled" : "");
+      s.dataset.frame = fi;
+      s.dataset.slot = si;
+      s.dataset.pic = frame.picId;
+      s.dataset.tile = si;
+      if (card) {
+        const face = document.createElement("div");
+        face.className = "card-face front";
+        const full = getPicture(state.level.packId, card.picId);
+        applyTileCSS(face, state.level.packId, full, card.tile, state.level.tileCols, state.level.tileRows);
+        s.appendChild(face);
+      } else {
+        // tap-tap target: pointerup (a drag released here is captured by the
+        // tile, so this only fires for direct taps)
+        s.addEventListener("pointerup", onSlotPointerUp);
+      }
+      f.appendChild(s);
+    });
+    wrap.appendChild(f);
+  });
+}
+
+export function slotElement(frameIdx, slotIdx) {
+  const frameEl = el("frames").children[frameIdx];
+  if (!frameEl) return null;
+  return frameEl.querySelectorAll(".fslot")[slotIdx] || null;
+}
+
+export function frameCenter(frameIdx) {
+  const frameEl = el("frames").children[frameIdx];
+  return frameEl ? centerOf(frameEl) : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+}
+
+export function renderTray(state, { dealAnimate = [] } = {}) {
+  const tray = el("tray");
+  tray.innerHTML = "";
+  tray.style.setProperty("--tile-ar", tileAspect(state));
   const animSet = new Set(dealAnimate);
   let k = 0;
-  state.slots.forEach((_, idx) => {
-    const node = buildCard(state, idx);
-    if (node.classList.contains("card") && animSet.has(idx)) {
-      node.classList.add("dealt");
-      node.querySelector(".card-inner").style.animationDelay = (k++ * CFG.dealStaggerMs) + "ms";
+  state.tray.forEach((card, i) => {
+    const slot = document.createElement("div");
+    slot.className = "tray-slot";
+    if (card) {
+      const t = document.createElement("div");
+      t.className = "tray-tile";
+      t.dataset.tray = i;
+      t.dataset.pic = card.picId;
+      t.dataset.tile = card.tile;
+      const full = getPicture(state.level.packId, card.picId);
+      applyTileCSS(t, state.level.packId, full, card.tile, state.level.tileCols, state.level.tileRows);
+      if (animSet.has(i)) {
+        t.classList.add("dealt");
+        t.style.animationDelay = (k++ * CFG.dealStaggerMs) + "ms";
+      }
+      makeDraggable(t, i);
+      slot.appendChild(t);
     }
-    grid.appendChild(node);
+    tray.appendChild(slot);
   });
-  renderSelection(state);
+  selectedTrayIdx = null;
 }
 
-export function renderSelection(state) {
-  const grid = el("grid");
-  state.slots.forEach((_, idx) => {
-    const node = grid.children[idx];
-    if (!node || !node.classList.contains("card")) return;
-    const pos = state.selected.indexOf(idx);
-    node.classList.toggle("selected", pos !== -1);
-    if (pos !== -1) node.setAttribute("data-n", pos + 1);
-    else node.removeAttribute("data-n");
-  });
+function trayTileEl(trayIdx) {
+  return el("tray").querySelector(`.tray-tile[data-tray="${trayIdx}"]`);
 }
 
-export function markSubmitting(idxs) {
-  for (const i of idxs) {
-    const node = cardEl(i);
-    if (node && node.classList.contains("card")) {
-      node.classList.remove("selected");
-      node.classList.add("submitting");
-    }
+// ================= selection (tap-tap) =================
+
+function clearTileSelection() {
+  selectedTrayIdx = null;
+  document.querySelectorAll(".tray-tile.selected").forEach(t => t.classList.remove("selected"));
+}
+
+function toggleTileSelection(trayIdx, tileEl) {
+  if (selectedTrayIdx === trayIdx) {
+    clearTileSelection();
+    audio.deselect();
+  } else {
+    clearTileSelection();
+    selectedTrayIdx = trayIdx;
+    tileEl.classList.add("selected");
+    audio.pop(1, 2);
   }
 }
 
-// animate a card flying to (x,y); resolves when done
-export function flyCardTo(slotIdx, x, y, delayMs = 0) {
-  const node = cardEl(slotIdx);
-  if (!node) return Promise.resolve();
-  const r = node.getBoundingClientRect();
-  const dx = x - (r.left + r.width / 2);
-  const dy = y - (r.top + r.height / 2);
-  node.style.zIndex = 50;
-  const anim = node.animate(
-    [
-      { transform: "translate(0,0) scale(1)", opacity: 1 },
-      { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 30}px) scale(.8)`, opacity: 1, offset: 0.5 },
-      { transform: `translate(${dx}px, ${dy}px) scale(.3)`, opacity: 0.9 },
-    ],
-    { duration: CFG.flyDurationMs, delay: delayMs, easing: "cubic-bezier(.3,.7,.3,1)", fill: "forwards" }
-  );
-  return anim.finished.catch(() => {});
+function onSlotPointerUp(e) {
+  if (selectedTrayIdx == null) return;
+  const s = e.currentTarget;
+  if (s.classList.contains("filled")) return;
+  const trayIdx = selectedTrayIdx;
+  const res = H.tryPlace(trayIdx, +s.dataset.frame, +s.dataset.slot);
+  clearTileSelection();
+  if (!res.ok) {
+    const tileEl = trayTileEl(trayIdx);
+    if (tileEl) {
+      tileEl.classList.add("wobble");
+      setTimeout(() => tileEl.classList.remove("wobble"), 340);
+    }
+    return;
+  }
+  afterPlaced({ frameIdx: +s.dataset.frame, slotIdx: +s.dataset.slot }, res);
 }
 
-export function clearCards(idxs) {
-  for (const i of idxs) {
-    const node = cardEl(i);
-    if (!node) continue;
-    const ph = document.createElement("div");
-    ph.className = "slot-empty";
-    node.replaceWith(ph);
+// ================= drag & drop =================
+
+function makeDraggable(tileEl, trayIdx) {
+  tileEl.addEventListener("pointerdown", (e) => onTilePointerDown(e, trayIdx, tileEl));
+}
+
+function onTilePointerDown(e, trayIdx, tileEl) {
+  const S = H.getState();
+  if (!S || S.phase !== "playing") return;
+  e.preventDefault();
+  try { tileEl.setPointerCapture(e.pointerId); } catch {}
+  drag = { trayIdx, tileEl, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, active: false, pointerId: e.pointerId };
+  tileEl.addEventListener("pointermove", onTilePointerMove);
+  tileEl.addEventListener("pointerup", onTilePointerUp, { once: true });
+  tileEl.addEventListener("pointercancel", onTilePointerCancel, { once: true });
+}
+
+function cacheSlotRects() {
+  slotRects = [];
+  document.querySelectorAll("#frames .fslot:not(.filled)").forEach(s => {
+    slotRects.push({
+      frameIdx: +s.dataset.frame, slotIdx: +s.dataset.slot,
+      el: s, rect: s.getBoundingClientRect(),
+    });
+  });
+}
+
+function slotAt(x, y) {
+  return slotRects.find(s => x >= s.rect.left && x <= s.rect.right && y >= s.rect.top && y <= s.rect.bottom) || null;
+}
+
+function highlightSlotAt(x, y) {
+  const hit = slotAt(x, y);
+  document.querySelectorAll(".fslot.drop-ok").forEach(s => s.classList.remove("drop-ok"));
+  if (hit) hit.el.classList.add("drop-ok");
+  return hit;
+}
+
+function onTilePointerMove(e) {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+  if (!drag.active && Math.hypot(dx, dy) > 10) {
+    drag.active = true;
+    drag.tileEl.classList.add("dragging");
+    clearTileSelection();
+    cacheSlotRects();
+    audio.click();
   }
+  if (drag.active) {
+    drag.dx = dx; drag.dy = dy;
+    drag.tileEl.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
+    highlightSlotAt(e.clientX, e.clientY);
+  }
+}
+
+function onTilePointerUp(e) {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const d = drag;
+  drag = null;
+  d.tileEl.classList.remove("dragging");
+  document.querySelectorAll(".fslot.drop-ok").forEach(s => s.classList.remove("drop-ok"));
+  if (d.active) {
+    const hit = slotAt(e.clientX, e.clientY);
+    if (hit) dropTile(d, hit);
+    else {
+      // no target: glide back home
+      d.tileEl.style.transition = "transform .28s cubic-bezier(.34,1.56,.64,1)";
+      d.tileEl.style.transform = "";
+      setTimeout(() => { d.tileEl.style.transition = ""; }, 300);
+    }
+  } else {
+    toggleTileSelection(d.trayIdx, d.tileEl); // plain tap
+  }
+}
+
+function onTilePointerCancel() {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  d.tileEl.classList.remove("dragging");
+  d.tileEl.style.transition = "transform .25s ease";
+  d.tileEl.style.transform = "";
+  setTimeout(() => { d.tileEl.style.transition = ""; }, 260);
+  document.querySelectorAll(".fslot.drop-ok").forEach(s => s.classList.remove("drop-ok"));
+}
+
+async function dropTile(d, hit) {
+  const res = H.tryPlace(d.trayIdx, hit.frameIdx, hit.slotIdx);
+  const tileEl = d.tileEl;
+  if (!res.ok) {
+    tileEl.style.transition = "transform .3s cubic-bezier(.34,1.8,.64,1)";
+    tileEl.style.transform = "";
+    tileEl.classList.add("wobble");
+    setTimeout(() => { tileEl.classList.remove("wobble"); tileEl.style.transition = ""; }, 340);
+    return;
+  }
+  // success: fly the tile into its slot, then re-render
+  const slotEl = slotElement(hit.frameIdx, hit.slotIdx);
+  if (slotEl) {
+    const r = slotEl.getBoundingClientRect();
+    const scale = r.width / (tileEl.offsetWidth || r.width);
+    const targetDx = d.dx + (r.left + r.width / 2) - (d.startX + tileEl.offsetWidth / 2);
+    const targetDy = d.dy + (r.top + r.height / 2) - (d.startY + tileEl.offsetHeight / 2);
+    tileEl.style.transition = `transform ${CFG.snapMs}ms cubic-bezier(.3,.7,.3,1)`;
+    tileEl.style.transform = `translate(${targetDx}px, ${targetDy}px) scale(${scale})`;
+    const c = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    setTimeout(() => particles.sparkle(c.x, c.y, "#ffd97a"), CFG.snapMs * 0.7);
+    await wait(CFG.snapMs);
+  }
+  afterPlaced(hit, res);
+}
+
+function afterPlaced(hit, res) {
+  const S = H.getState();
+  renderFrames(S);
+  renderTray(S);
+  updateHUD(S);
+  updateDeckStrip(S);
+  if (res.pts) {
+    const slotEl = slotElement(hit.frameIdx, hit.slotIdx);
+    if (slotEl) {
+      const c = centerOf(slotEl);
+      floater(`+${res.pts}`, c.x, c.y - 16);
+      if (res.combo >= 2) setTimeout(() => floater(`COMBO ×${res.combo}`, c.x, c.y - 52, "combo"), 120);
+    }
+  }
+  if (res.completedPicId) H.pictureComplete(hit.frameIdx);
+  else H.topUp();
+}
+
+// ================= celebration =================
+
+export async function celebrateFrame(S, frameIdx, pic) {
+  const frameEl = el("frames").children[frameIdx];
+  if (frameEl) frameEl.classList.add("celebrating");
+  await wait(CFG.celebrateMs);
+  await showAssembled(S.level.packId, pic);
 }
 
 // full-picture celebration: show, hold, fly to deck tray
 export async function showAssembled(packId, pic) {
-  const gridC = centerOf(el("grid"));
+  const fc = centerOf(el("frames"));
   const size = Math.min(window.innerWidth * 0.74, 300);
   const d = document.createElement("div");
   d.className = "assembled";
-  d.style.cssText = `width:${size}px;height:${size}px;left:${gridC.x - size / 2}px;top:${gridC.y - size / 2}px;background-image:url("${pictureURL(packId, pic)}")`;
+  d.style.cssText = `width:${size}px;height:${size}px;left:${fc.x - size / 2}px;top:${fc.y - size / 2}px;background-image:url("${pictureURL(packId, pic)}")`;
   const cap = document.createElement("div");
   cap.className = "assembled-caption";
   cap.textContent = pic.title;
-  cap.style.left = gridC.x + "px";
-  cap.style.top = gridC.y + size / 2 + 26 + "px";
+  cap.style.left = fc.x + "px";
+  cap.style.top = fc.y + size / 2 + 26 + "px";
   document.body.appendChild(d);
   document.body.appendChild(cap);
   await wait(CFG.assembledHoldMs);
   cap.style.transition = "opacity .3s"; cap.style.opacity = "0";
   setTimeout(() => cap.remove(), 320);
-  // fly to deck strip
   const tray = centerOf(el("deck-strip"));
-  const dx = tray.x - gridC.x, dy = tray.y - gridC.y;
+  const dx = tray.x - fc.x, dy = tray.y - fc.y;
   d.classList.add("out");
   await d.animate(
     [{ transform: "translate(0,0) scale(1)" }, { transform: `translate(${dx}px,${dy}px) scale(.12)`, opacity: 0.6 }],
@@ -212,22 +388,16 @@ export async function showAssembled(packId, pic) {
   d.remove();
 }
 
-export function flashHint(idxs) {
-  for (const i of idxs) {
-    const node = cardEl(i);
-    if (node && node.classList.contains("card")) node.classList.add("hint");
-  }
-  setTimeout(() => {
-    for (const i of idxs) {
-      const node = cardEl(i);
-      if (node) node.classList.remove("hint");
-    }
-  }, CFG.hintDurationMs);
+export function flashSlot(frameIdx, slotIdx) {
+  const s = slotElement(frameIdx, slotIdx);
+  if (!s) return;
+  s.classList.add("hint");
+  setTimeout(() => s.classList.remove("hint"), CFG.hintDurationMs);
 }
 
-// ---------------- HUD ----------------
+// ================= HUD =================
 
-export function updateHUD(state, mi) {
+export function updateHUD(state) {
   el("hud-score").textContent = state.score;
   const done = state.completed.size, total = state.picIds.length;
   el("hud-progress").innerHTML = `<b>${done}</b>/${total}`;
@@ -247,9 +417,7 @@ export function updateCombo(combo, remainMs, windowMs) {
 }
 
 export function updateDeckStrip(state) {
-  const onBoard = new Set();
-  state.slots.forEach(c => { if (c) onBoard.add(c.picId); });
-  const left = state.pictureQueue.length + onBoard.size;
+  const left = state.pictureQueue.length; // pictures not yet completed
   const minis = Math.min(5, left);
   el("deck-cards").innerHTML = Array.from({ length: minis }, () => `<div class="deck-mini"></div>`).join("");
   el("deck-count").innerHTML = `<b>${left}</b> picture${left === 1 ? "" : "s"} left`;
@@ -261,7 +429,7 @@ export function updateBlitz(left, total) {
   el("blitz-timer").classList.toggle("urgent", left <= 10);
 }
 
-// ---------------- gallery ----------------
+// ================= gallery =================
 
 let galleryTab = null;
 
@@ -304,7 +472,7 @@ function showPictureModal(packId, pic) {
   `);
 }
 
-// ---------------- modals ----------------
+// ================= modals =================
 
 export function openModal(html, { veilClose = true } = {}) {
   const root = el("modal-root");
@@ -332,7 +500,7 @@ export function showPause(mode) {
   v.querySelector("#m-quit").onclick = () => H.quit();
 }
 
-export function showLevelComplete({ stars, base, comboBonus, cleanBonus, total, packId, picIds, hasNext }) {
+export function showLevelComplete({ stars, base, comboBonus, pictureBonus, cleanBonus, total, accuracy, packId, picIds, hasNext }) {
   const man = getManifest(packId);
   const mosaic = picIds.map((id, i) => {
     const p = man.pictures.find(x => x.id === id);
@@ -342,9 +510,11 @@ export function showLevelComplete({ stars, base, comboBonus, cleanBonus, total, 
     <h2>Level Complete! 🎉</h2>
     <div class="star-row">${[1, 2, 3].map(i => `<span class="${i <= stars ? "lit" : "dim"}">★</span>`).join("")}</div>
     <div class="score-lines">
-      <div class="sl"><span>Pictures</span><b>+${base}</b></div>
+      <div class="sl"><span>Tiles placed</span><b>+${base}</b></div>
       <div class="sl"><span>Combo bonus</span><b>+${comboBonus}</b></div>
+      <div class="sl"><span>Pictures</span><b>+${pictureBonus}</b></div>
       ${cleanBonus ? `<div class="sl"><span>Clean hands ✨</span><b>+${cleanBonus}</b></div>` : ""}
+      <div class="sl"><span>Accuracy</span><b>${accuracy}%</b></div>
       <div class="sl total"><span>Total</span><b>${total}</b></div>
     </div>
     <div class="mosaic">${mosaic}</div>
@@ -401,10 +571,10 @@ export function showHowTo() {
   openModal(`
     <h2>How to play</h2>
     <div class="howto-steps">
-      <div class="howto-step"><span class="n">1</span><p><b>Tap tiles</b> to select them. Each picture is split into tiles — find them all.</p></div>
-      <div class="howto-step"><span class="n">2</span><p>Select <b>every tile of one picture</b> and they fly together and merge. ✨</p></div>
-      <div class="howto-step"><span class="n">3</span><p>Fresh tiles deal in. <b>Clear the whole deck</b> to finish the level!</p></div>
-      <div class="howto-step"><span class="n">×</span><p>Chain quick completes for a <b>combo multiplier</b> up to ×8.</p></div>
+      <div class="howto-step"><span class="n">1</span><p><b>Drag tiles</b> from the tray into the picture frames — or tap a tile, then tap a slot.</p></div>
+      <div class="howto-step"><span class="n">2</span><p>Each tile must match the picture <b>and the exact spot</b>. Wrong spot bounces back!</p></div>
+      <div class="howto-step"><span class="n">3</span><p>New pictures arrive mid-game and <b>tiles drip in over time</b> — plan around what's missing.</p></div>
+      <div class="howto-step"><span class="n">×</span><p>Chain quick placements for a <b>combo multiplier</b> up to ×8. Misplaces break it!</p></div>
     </div>
     <button class="btn btn-primary" data-close>Got it!</button>
   `);

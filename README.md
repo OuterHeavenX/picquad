@@ -1,19 +1,23 @@
 # PicQuad
 
-Tap the tiles. Complete the picture. A juicy little card-sort puzzle for the browser.
+Drag the tiles. Solve the jigsaw. A juicy little picture-puzzle for the browser.
 
 **Live:** https://outerheavenx.github.io/picquad/
 
 ## How it plays
 
-A grid of face-up cards, each showing one tile of a cute picture. Tap every tile
-of the same picture — they fly together, merge with a burst of confetti, and the
-completed picture gets collected. Fresh tiles deal in from the deck. Clear the
-whole deck to finish the level.
+Picture frames sit on the board with empty jigsaw slots; a tray below holds loose
+tiles. **Drag a tile into a frame** (or tap a tile, then tap a slot) — it locks in
+only if it's the right picture *and* the right spot. Wrong spot? It bounces back.
+
+New pictures slide in mid-game, and tiles **drip-feed** into the tray — never a
+whole picture at once — so you're always planning around what's missing. Finish
+every picture to clear the level.
 
 - **Adventure** — 60 levels. Levels 1–25 use 4-tile pictures (2×2), levels 26–60
-  use 6-tile pictures (3×2). Chain quick completes for a combo multiplier up to ×8.
-- **Blitz** — 90 seconds, endless deck, chase your best score.
+  use 6-tile pictures (3×2). Chain quick placements for a combo multiplier up to ×8
+  (misplaces break it!).
+- **Blitz** — 90 seconds, endless pictures, chase your best score.
 - **Daily** — one seeded puzzle per day, streak tracking.
 - **Gallery** — every completed picture lands in a sticker-book collection.
 
@@ -33,9 +37,9 @@ js/
   particles.js canvas confetti / sparkle / bokeh engine
   juice.js     shake, floating score text, haptics, toasts
   pictures.js  pack registry + tile-grid (C×R) rendering math — owns ALL tile geometry
-  deck.js      deck building, seedable shuffle, anti-cluster deal
-  board.js     pure selection state machine (no DOM)
-  game.js      level lifecycle, scoring, combo, power-ups, modes
+  deck.js      queue of pictures w/ un-dealt tile pools, seedable shuffle, drip-feed picks
+  board.js     pure frames + tray state machine (no DOM)
+  game.js      level lifecycle, placing, scoring, combo, power-ups, modes
   ui.js        screens, HUD, grid DOM, animations, modals
 assets/img/packs/
   packs.json   registry — adding a theme = one line here

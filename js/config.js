@@ -2,16 +2,21 @@
 
 export const CFG = {
   // scoring / combo
-  baseScore: 100,
-  comboWindowMs: 10000,
+  placeScore: 10,          // per correct tile placement
+  pictureScore: 100,       // per completed picture
+  comboWindowMs: 8000,     // correct placements chain the combo
   maxCombo: 8,
 
+  // board / tray
+  framesPerBoard: 2,       // active picture frames
+  traySize: 10,            // tile tray slots
+  trayTopUpTarget: 8,      // drip-feed until tray holds this many
+  initialDealBack: 1,      // tiles held back per picture on introduction (tactical gap)
+
   // timings
-  submitBeatMs: 160,        // pause after Tth tap before cards fly
-  dealStaggerMs: 70,        // cascade delay between dealt cards
-  flyStaggerMs: 55,         // stagger between cards flying to center
-  flyDurationMs: 420,
-  assembledHoldMs: 750,     // how long the completed picture shows
+  snapMs: 260,              // tile snap-into-slot animation
+  celebrateMs: 900,         // frame celebration before new picture arrives
+  dealStaggerMs: 70,
   hintDurationMs: 3000,
 
   // power-ups per adventure level

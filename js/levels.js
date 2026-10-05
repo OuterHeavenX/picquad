@@ -5,14 +5,12 @@ const BANDS = [
   {
     from: 1, to: 25,
     tiles: 4, tileCols: 2, tileRows: 2,
-    gridCols: 5, gridRows: 4,
     pictures: (l) => Math.min(12, 6 + Math.floor((l - 1) / 4)), // 6 → 12
     lookalikes: (l) => (l >= 18 ? 2 : l >= 10 ? 1 : 0),
   },
   {
     from: 26, to: 60,
     tiles: 6, tileCols: 3, tileRows: 2,
-    gridCols: 6, gridRows: 4,
     pictures: (l) => Math.min(12, 8 + Math.floor((l - 26) / 9)), // 8 → 12
     lookalikes: (l) => (l >= 45 ? 2 : 1),
   },
@@ -42,8 +40,8 @@ export function getLevel(n) {
     tiles: band.tiles,
     tileCols: band.tileCols,
     tileRows: band.tileRows,
-    gridCols: band.gridCols,
-    gridRows: band.gridRows,
+    frames: 2,          // active jigsaw frames on the board
+    traySize: 10,       // tile tray slots
     pictures: ov.pictures ?? band.pictures(n),
     lookalikes: ov.lookalikes ?? band.lookalikes(n),
     timeLimit: null,

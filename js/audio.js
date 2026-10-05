@@ -60,6 +60,10 @@ export const audio = {
   groupSwap()  { tone({ freq: 520, dur: 0.08, type: "triangle", vol: 0.14 }); },
   whoosh()     { noise({ dur: 0.22, vol: 0.1, from: 500, to: 3800 }); },
   deal()       { noise({ dur: 0.12, vol: 0.07, from: 900, to: 2600 }); },
+  // jigsaw tile snap: woody click + bright pop
+  snap()       { noise({ dur: 0.06, vol: 0.22, from: 1800, to: 900, type: "highpass" }); tone({ freq: 740, dur: 0.1, type: "triangle", vol: 0.2, slideTo: 1180 }); },
+  // misplace wobble: soft descending buzz
+  wobble()     { tone({ freq: 300, dur: 0.22, type: "sawtooth", vol: 0.1, slideTo: 170 }); tone({ freq: 210, dur: 0.2, type: "sine", vol: 0.12, slideTo: 140, when: 0.05 }); },
 
   // submit arpeggio, length scales with T
   arpeggio(T) {
