@@ -1,0 +1,72 @@
+/* hud.css — top HUD bar, combo meter, power-up dock, blitz timer */
+
+.hud { display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; }
+
+.hud-left { display: flex; align-items: center; gap: 10px; }
+.score-wrap { display: flex; flex-direction: column; line-height: 1.05; }
+.score-label { font-size: 10px; font-weight: 800; letter-spacing: 2px; color: var(--cream-dim); }
+#hud-score { font-size: 26px; font-weight: 900; color: var(--gold); font-variant-numeric: tabular-nums; }
+#hud-score.bump { animation: score-bump .25s cubic-bezier(.34, 1.8, .64, 1); }
+@keyframes score-bump { 40% { transform: scale(1.25); } }
+
+.combo-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+#combo-bar {
+  width: 100%; max-width: 170px; height: 10px; border-radius: 999px;
+  background: rgba(255, 247, 232, .12); overflow: hidden;
+}
+#combo-fill {
+  height: 100%; width: 0%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold), var(--pink));
+  transition: width .1s linear;
+}
+.combo-wrap.hot #combo-fill {
+  background: linear-gradient(90deg, #ff9f1c, #ff3d5a, #ff9f1c);
+  background-size: 200% 100%;
+  animation: combo-fire .6s linear infinite;
+}
+@keyframes combo-fire { to { background-position: 200% 0; } }
+#combo-text { font-size: 13px; font-weight: 900; color: var(--pink); min-height: 17px; letter-spacing: 1px; }
+
+.hud-right { min-width: 64px; text-align: right; }
+#hud-progress { font-weight: 900; font-size: 17px; color: var(--cream-dim); font-variant-numeric: tabular-nums; }
+#hud-progress b { color: var(--cream); }
+
+/* power-up dock */
+.power-dock {
+  display: flex; justify-content: center; gap: 14px;
+  padding: 8px 0 calc(4px + var(--sab));
+}
+.power-btn {
+  position: relative;
+  width: 74px; height: 66px; border-radius: 18px;
+  background: var(--ink-3); border: 2px solid rgba(255, 247, 232, .1);
+  color: var(--cream); font-size: 26px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  box-shadow: var(--shadow);
+  transition: transform .08s ease, opacity .2s;
+}
+.power-btn:active { transform: scale(.9); }
+.power-btn label { font-size: 11px; font-weight: 800; color: var(--cream-dim); margin-top: 2px; font-family: var(--font); }
+.power-btn .pow-count {
+  position: absolute; top: -8px; right: -8px;
+  min-width: 26px; height: 26px; border-radius: 999px;
+  background: var(--teal); color: #06302a;
+  font-size: 14px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center; padding: 0 6px;
+}
+.power-btn.depleted { opacity: .35; }
+.power-btn.depleted .pow-count { background: #555; color: #bbb; }
+
+/* blitz timer */
+.blitz-timer {
+  height: 12px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 247, 232, .12); margin: 2px 0 6px;
+}
+#blitz-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, var(--teal), var(--gold));
+  transition: width .25s linear;
+}
+.blitz-timer.urgent #blitz-fill { background: linear-gradient(90deg, #ff9f1c, var(--danger)); }
+.blitz-timer.urgent { animation: blitz-pulse .5s ease-in-out infinite; }
+@keyframes blitz-pulse { 50% { transform: scaleY(1.5); } }
