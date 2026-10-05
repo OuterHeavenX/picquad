@@ -1,0 +1,116 @@
+/* cards.css — card faces, tile rendering, select / hint / merge states */
+
+.card {
+  position: relative;
+  border-radius: 12px;
+  cursor: pointer;
+  perspective: 600px;
+  /* aspect-ratio + grid sizing come from board.css via --tile-ar */
+  aspect-ratio: var(--tile-ar, 1 / 1);
+  transition: transform .16s cubic-bezier(.34, 1.56, .64, 1), filter .16s ease;
+  will-change: transform;
+}
+
+.card-inner {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  transition: transform .38s cubic-bezier(.4, .1, .2, 1);
+}
+
+.card.dealt .card-inner { animation: deal-flip .45s cubic-bezier(.3, 1.3, .5, 1) backwards; }
+@keyframes deal-flip {
+  from { transform: rotateY(90deg) scale(.6); opacity: 0; }
+  to   { transform: rotateY(0deg) scale(1); opacity: 1; }
+}
+
+.card-face {
+  position: absolute; inset: 0;
+  border-radius: 12px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .4);
+  border: 2px solid rgba(255, 247, 232, .14);
+}
+
+.card-face.front {
+  background-repeat: no-repeat;
+  background-color: var(--ink-3);
+}
+
+.card-face.back {
+  transform: rotateY(180deg);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(245, 185, 66, .28) 0 18%, transparent 19%),
+    repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 6px, transparent 6px 12px),
+    linear-gradient(160deg, #5d4028, var(--card-back));
+  display: flex; align-items: center; justify-content: center;
+}
+.card-face.back::after {
+  content: "✦"; color: var(--gold); font-size: 26px; text-shadow: 0 0 12px rgba(245,185,66,.8);
+}
+
+/* selected: lift + gold glow */
+.card.selected {
+  transform: translateY(-8px) scale(1.06);
+  z-index: 5;
+}
+.card.selected .card-face.front {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold), 0 0 22px rgba(245, 185, 66, .75), 0 10px 18px rgba(0,0,0,.5);
+}
+.card.selected::after {
+  content: attr(data-n);
+  position: absolute; top: -10px; right: -10px; z-index: 6;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--gold); color: #3a2703;
+  font-weight: 900; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 8px rgba(0,0,0,.5);
+  animation: badge-pop .2s cubic-bezier(.34, 1.8, .64, 1);
+}
+@keyframes badge-pop { from { transform: scale(0); } }
+
+/* submitting pulse */
+.card.submitting .card-face.front {
+  animation: submit-pulse .5s ease infinite;
+  border-color: #fff;
+  box-shadow: 0 0 0 3px #fff, 0 0 30px rgba(255, 255, 255, .8);
+}
+@keyframes submit-pulse { 50% { filter: brightness(1.35); } }
+
+/* hint glow */
+.card.hint .card-face.front {
+  animation: hint-glow .8s ease-in-out infinite;
+  border-color: var(--teal);
+}
+@keyframes hint-glow {
+  50% { box-shadow: 0 0 0 4px var(--teal), 0 0 26px rgba(94, 200, 180, .9); filter: brightness(1.15); }
+}
+
+/* empty slot placeholder keeps grid shape during refill */
+.slot-empty {
+  aspect-ratio: var(--tile-ar, 1 / 1);
+  border-radius: 12px;
+  border: 2px dashed rgba(255, 247, 232, .12);
+}
+
+/* assembled picture overlay (submit celebration) */
+.assembled {
+  position: fixed; z-index: 240; pointer-events: none;
+  border-radius: 18px; overflow: hidden;
+  border: 4px solid var(--gold);
+  box-shadow: 0 0 60px rgba(245, 185, 66, .7), var(--shadow);
+  background-size: cover; background-position: center;
+  animation: assembled-pop .45s cubic-bezier(.34, 1.56, .64, 1);
+}
+@keyframes assembled-pop { from { transform: scale(.2) rotate(-8deg); opacity: 0; } }
+.assembled.out { transition: transform .4s ease-in, opacity .4s; transform: scale(.1); opacity: 0; }
+.assembled-caption {
+  position: fixed; z-index: 241; pointer-events: none;
+  font-weight: 900; font-size: 22px; color: var(--cream);
+  text-shadow: 0 2px 8px rgba(0,0,0,.7);
+  transform: translateX(-50%);
+  animation: caption-rise .8s ease forwards;
+}
+@keyframes caption-rise { from { opacity: 0; transform: translate(-50%, 10px); } }
