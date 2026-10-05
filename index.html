@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>PicQuad</title>
+<meta name="theme-color" content="#171224">
+<meta name="description" content="PicQuad — tap the tiles, complete the picture. A juicy little card-sort puzzle.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='4' width='26' height='26' rx='6' fill='%23f5b942'/%3E%3Crect x='34' y='4' width='26' height='26' rx='6' fill='%23ff70a6'/%3E%3Crect x='4' y='34' width='26' height='26' rx='6' fill='%235ec8b4'/%3E%3Crect x='34' y='34' width='26' height='26' rx='6' fill='%238ecae6'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/cards.css">
+<link rel="stylesheet" href="css/board.css">
+<link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+<canvas id="fx" aria-hidden="true"></canvas>
+
+<div id="app">
+  <!-- TITLE -->
+  <section id="screen-title" class="screen">
+    <div class="title-quad" aria-hidden="true">
+      <span class="tq tq1"></span><span class="tq tq2"></span><span class="tq tq3"></span><span class="tq tq4"></span>
+    </div>
+    <h1 class="game-logo">Pic<span>Quad</span></h1>
+    <p class="tagline">Tap the tiles. Complete the picture.</p>
+    <nav class="menu">
+      <button class="btn btn-primary" id="btn-play">▶ Play</button>
+      <button class="btn" id="btn-daily">📅 Daily <span id="daily-streak-badge" class="badge hidden"></span></button>
+      <button class="btn" id="btn-blitz">⚡ Blitz</button>
+      <button class="btn" id="btn-gallery">🖼 Gallery</button>
+      <div class="menu-row">
+        <button class="btn btn-small" id="btn-howto">❓ How to play</button>
+        <button class="btn btn-small" id="btn-settings">⚙ Settings</button>
+      </div>
+    </nav>
+    <p class="best-line" id="best-line"></p>
+  </section>
+
+  <!-- LEVEL SELECT -->
+  <section id="screen-levels" class="screen">
+    <header class="bar">
+      <button class="icon-btn" id="btn-levels-back">‹</button>
+      <h2>Adventure</h2>
+      <span class="bar-spacer"></span>
+    </header>
+    <div id="level-grid" class="level-grid"></div>
+  </section>
+
+  <!-- GAME -->
+  <section id="screen-game" class="screen">
+    <header id="hud" class="hud">
+      <div class="hud-left">
+        <button class="icon-btn" id="btn-pause">⏸</button>
+        <div class="score-wrap"><span class="score-label">SCORE</span><span id="hud-score">0</span></div>
+      </div>
+      <div class="combo-wrap">
+        <div id="combo-bar"><div id="combo-fill"></div></div>
+        <span id="combo-text"></span>
+      </div>
+      <div class="hud-right"><span id="hud-progress">0/0</span></div>
+    </header>
+    <div id="deck-strip" class="deck-strip">
+      <div class="deck-cards" id="deck-cards"></div>
+      <span id="deck-count"></span>
+    </div>
+    <div id="board-wrap">
+      <div id="grid" class="grid"></div>
+    </div>
+    <div id="blitz-timer" class="blitz-timer hidden"><div id="blitz-fill"></div></div>
+    <footer id="power-dock" class="power-dock">
+      <button class="power-btn" id="pow-hint">🔍<span class="pow-count" id="pow-hint-n"></span><label>Hint</label></button>
+      <button class="power-btn" id="pow-shuffle">🔀<span class="pow-count" id="pow-shuffle-n"></span><label>Shuffle</label></button>
+      <button class="power-btn" id="pow-peek">👁<span class="pow-count" id="pow-peek-n"></span><label>Peek</label></button>
+    </footer>
+  </section>
+
+  <!-- GALLERY -->
+  <section id="screen-gallery" class="screen">
+    <header class="bar">
+      <button class="icon-btn" id="btn-gallery-back">‹</button>
+      <h2>Gallery</h2>
+      <span class="bar-spacer"></span>
+    </header>
+    <div id="pack-tabs" class="pack-tabs"></div>
+    <div id="gallery-grid" class="gallery-grid"></div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="screen-settings" class="screen">
+    <header class="bar">
+      <button class="icon-btn" id="btn-settings-back">‹</button>
+      <h2>Settings</h2>
+      <span class="bar-spacer"></span>
+    </header>
+    <div class="settings-list">
+      <label class="setting-row"><span>🔊 Sound effects</span><input type="checkbox" id="set-sfx" class="toggle"></label>
+      <label class="setting-row"><span>🎵 Music</span><input type="checkbox" id="set-music" class="toggle"></label>
+      <label class="setting-row"><span>📳 Vibration</span><input type="checkbox" id="set-vibration" class="toggle"></label>
+      <button class="btn btn-danger" id="btn-reset-save">Reset all progress</button>
+      <p class="credits">PicQuad · made with ♥ · v1.0</p>
+    </div>
+  </section>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
