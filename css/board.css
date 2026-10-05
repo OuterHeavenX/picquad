@@ -1,0 +1,48 @@
+/* board.css — grid layout, deck strip */
+
+#board-wrap {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 6px 0;
+}
+
+.grid {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  /* --grid-cols and --tile-ar set inline by ui.js */
+  grid-template-columns: repeat(var(--grid-cols, 5), 1fr);
+}
+
+.grid.shake { animation: grid-shake .13s linear 2; }
+@keyframes grid-shake {
+  25% { transform: translate(-4px, 2px); }
+  75% { transform: translate(4px, -2px); }
+}
+
+/* deck strip: remaining pictures */
+.deck-strip {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; padding: 8px 0 2px;
+  min-height: 54px;
+}
+.deck-cards { display: flex; }
+.deck-mini {
+  width: 34px; height: 46px; border-radius: 7px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(245, 185, 66, .3) 0 20%, transparent 21%),
+    linear-gradient(160deg, #5d4028, var(--card-back));
+  border: 1.5px solid rgba(255, 247, 232, .16);
+  box-shadow: 0 3px 6px rgba(0,0,0,.4);
+  margin-left: -16px;
+  display: flex; align-items: center; justify-content: center;
+}
+.deck-mini:first-child { margin-left: 0; }
+.deck-mini::after { content: "✦"; color: var(--gold); font-size: 13px; }
+.deck-mini:nth-child(1) { transform: rotate(-7deg); }
+.deck-mini:nth-child(2) { transform: rotate(-3deg) translateY(-2px); }
+.deck-mini:nth-child(3) { transform: translateY(-4px); }
+.deck-mini:nth-child(4) { transform: rotate(3deg) translateY(-2px); }
+.deck-mini:nth-child(5) { transform: rotate(7deg); }
+#deck-count { font-weight: 900; font-size: 15px; color: var(--cream-dim); }
+#deck-count b { color: var(--gold); font-size: 18px; }
